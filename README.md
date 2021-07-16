@@ -1,5 +1,5 @@
 # [ANY] Movement Recorder
-Records usercmds and plays them back. Saves to `sourcemod/data/recordings`.
+[SourceMod](https://www.sourcemod.net/about.php) plugin that records usercmds and plays them back. Saves to `sourcemod/data/recordings`.
 Intended for personal use, not a polished release, expect issues.
 
 ## Commands
