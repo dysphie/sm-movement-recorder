@@ -52,7 +52,7 @@ public void OnPluginStart()
 	RegConsoleCmd("rec_playstop", Command_PlaybackStop,
 		"Stop record playback");
 
-	RegConsoleCmd("rec_playend", Command_PlaybackSkip,
+	RegConsoleCmd("rec_skip", Command_PlaybackSkip,
 		"Plays a demo and skips to the last frames without timescaling. " ...
 		"This WILL cause desync, for smoother results use rec_playextend");
 
@@ -197,13 +197,13 @@ public Action Command_Record(int client, int args)
 	return Plugin_Handled;
 }
 
-public Action Command_PlaybackSkipAll(int client, int args)
-{
-	forced[client] = true;
-	cursor[client] = record[client].Size - 100;
-	ReplyToCommand(client, "Skipping to last 100 frames");
-	return Plugin_Handled;
-}
+// public Action Command_PlaybackSkipAll(int client, int args)
+// {
+// 	forced[client] = true;
+// 	cursor[client] = record[client].Size - 100;
+// 	ReplyToCommand(client, "Skipping to last 100 frames");
+// 	return Plugin_Handled;
+// }
 
 public Action Command_PlaybackSkip(int client, int args)
 {
@@ -213,9 +213,11 @@ public Action Command_PlaybackSkip(int client, int args)
 		return Plugin_Handled;
 	}
 
+	int skipFrames = GetCmdArgInt(1);
+
 	forced[client] = true;
-	cursor[client] += 300;
-	ReplyToCommand(client, "Skipping 300 frames");
+	cursor[client] += skipFrames;
+	ReplyToCommand(client, "Skipping %d frames", skipFrames);
 	return Plugin_Handled;
 }
 
