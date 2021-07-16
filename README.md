@@ -14,4 +14,4 @@ Intended for personal use, not a polished release, expect issues.
 
 ## Convars
 
-`rec_debug` - Console verbose while recording/playing back
+- `rec_debug` - Console verbose while recording/playing back
