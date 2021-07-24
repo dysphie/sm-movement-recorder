@@ -3,6 +3,8 @@
 
 enum struct Cmd
 {
+	char weaponName[32];
+
 	int buttons;
 	int impulse;
 	float angles[3];
@@ -23,6 +25,7 @@ int cursor[MAXPLAYERS+1];
 bool recording[MAXPLAYERS+1];
 bool playbacking[MAXPLAYERS+1];
 bool continuing[MAXPLAYERS+1];
+bool looping[MAXPLAYERS+1];
 
 char recordingName[MAXPLAYERS+1][PLATFORM_MAX_PATH];
 char playingName[MAXPLAYERS+1][PLATFORM_MAX_PATH];
@@ -47,6 +50,7 @@ public void OnPluginStart()
 	RegConsoleCmd("rec_start", Command_Record, "Start recording");
 	RegConsoleCmd("rec_stop", Command_RecordStop, "Stop recording");
 	RegConsoleCmd("rec_play", Command_Playback, "Play back a saved recording");
+	RegConsoleCmd("rec_botloop", Command_BotLoopback, "Play back a saved recording as a bot and loop it");
 	RegConsoleCmd("rec_botplay", Command_BotPlayback, "Play back a saved recording as a bot");
 
 	RegConsoleCmd("rec_playstop", Command_PlaybackStop,
@@ -107,6 +111,7 @@ void ExportRecording(int client)
 		kv.SetNum("mouse_y", cmd.mouse[1]);
 		kv.SetFloat("stamina", cmd.stamina);
 		kv.SetVector("origin", cmd.pos);
+		kv.SetString("weapon_name", cmd.weaponName);
 
 		kv.GoBack();
 	}
@@ -164,9 +169,11 @@ bool ImportRecording(int client, const char[] name)
 		cmd.stamina = kv.GetFloat("stamina");
 		kv.GetVector("origin", cmd.pos);
 
+		kv.GetString("weapon_name", cmd.weaponName, sizeof(cmd.weaponName));
+
 		record[client].SetArray(key, cmd, sizeof(cmd));
 
-		PrintToServer("Imported frame %d", key);
+		// PrintToServer("Imported frame %d", key);
 	}
 	while (kv.GotoNextKey());
 
@@ -280,11 +287,11 @@ public Action Command_Playback(int client, int args)
 /**
  * Play back demo as a bot
  */
-public Action Command_BotPlayback(int client, int args)
+public Action Command_BotLoopback(int client, int args)
 {
 	if (args < 1)
 	{
-		ReplyToCommand(client, "Usage sm_botplay <demoname>");
+		ReplyToCommand(client, "Usage sm_botloop <demoname>");
 		return Plugin_Handled;
 	}
 
@@ -297,11 +304,50 @@ public Action Command_BotPlayback(int client, int args)
 		if (IsClientInGame(i) && IsFakeClient(i) && IsPlayerAlive(i) && !playbacking[i] && !recording[i])
 		{
 			Playback_Start(i, recname);
+			looping[i] = true;
 			return Plugin_Handled;
 		}
 	}
 
 	ReplyToCommand(client, "Couldn't find free bot to play demo");
+	return Plugin_Handled;
+}
+/**
+ * Play back demo as a bot
+ */
+public Action Command_BotPlayback(int client, int args)
+{
+	if (args < 1)
+	{
+		ReplyToCommand(client, "Usage sm_botplay <demoname>");
+		return Plugin_Handled;
+	}
+
+	bool all;
+
+	if (args > 1)
+	{
+		char arg2[10];
+		GetCmdArg(2, arg2, sizeof(arg2));
+		all = StrEqual(arg2, "@all");
+	}
+
+	char recname[256];
+	GetCmdArg(1, recname, sizeof(recname));
+
+	for (int i = 1; i <= MaxClients; i++)
+	{
+		// Skip busy bots
+		if (IsClientInGame(i) && IsFakeClient(i) && IsPlayerAlive(i) && !playbacking[i] && !recording[i])
+		{
+			Playback_Start(i, recname);
+
+			if (!all)
+				return Plugin_Handled;
+		}
+	}
+
+	// ReplyToCommand(client, "Couldn't find free bot to play demo");
 	return Plugin_Handled;
 }
 
@@ -310,7 +356,19 @@ public Action Command_BotPlayback(int client, int args)
  */
 public Action Command_PlaybackStop(int client, int args)
 {
-	playbacking[client] = false;
+	if (args < 1)
+	{
+		ReplyToCommand(client, "Usage: rec_playstop <recording name>");
+		return Plugin_Handled;
+	}
+
+	char movieName[32];
+	GetCmdArg(1, movieName, sizeof(movieName));
+
+	for (int i = 1; i <= MaxClients; i++)
+		if (IsClientInGame(i) && StrEqual(movieName, playingName[i], false))
+			playbacking[i] = false;
+	
 	return Plugin_Handled;
 }
 
@@ -379,12 +437,18 @@ void Playback_Stop(int client)
 {
 	playbacking[client] = false;
 
+	if (looping[client])
+	{
+		Playback_Start(client, playingName[client]);
+		return;
+	}
+
 	if (continuing[client])
 	{
 		continuing[client] = false;
 		recording[client] = true;
 		Format(recordingName[client], sizeof(recordingName[]), "%s_ex", playingName[client]);
-		PrintToServer("Format result was %s", recordingName[client]);
+		// PrintToServer("Format result was %s", recordingName[client]);
 	}
 
 	startPlayTime[client] = -1.0;
@@ -407,6 +471,8 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 		cmd.stamina = GetEntPropFloat(client, Prop_Send, "m_flStamina");
 		GetEntPropVector(client, Prop_Data, "m_vecAbsVelocity", cmd.vel);
 		GetClientAbsOrigin(client, cmd.pos);
+
+		GetClientWeapon(client, cmd.weaponName, sizeof(cmd.weaponName));
 
 		cmd.buttons = buttons;
 		cmd.impulse = impulse;
@@ -438,6 +504,19 @@ public Action OnPlayerRunCmd(int client, int& buttons, int& impulse, float vel[3
 				forced[client] = false;
 				SetEntPropFloat(client, Prop_Send, "m_flStamina", cmd.stamina);
 				TeleportEntity(client, cmd.pos, cmd.realangles, cmd.vel);
+
+				int replayWeapon = GivePlayerItem(client, cmd.weaponName);
+
+				if (replayWeapon != -1)
+				{
+					EquipPlayerWeapon(client, replayWeapon);
+
+					float curTime = GetGameTime();
+					SetEntPropEnt(client, Prop_Send, "m_hActiveWeapon", replayWeapon);
+					SetEntPropFloat(client, Prop_Send, "m_flNextAttack", curTime);
+
+					SetEntProp(replayWeapon, Prop_Data, "m_iClip1", 31);
+				}
 			}
 			else
 				TeleportEntity(client, .angles=cmd.realangles);
